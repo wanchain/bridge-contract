@@ -1,1 +1,1 @@
-# cross-chain-defi-contract
+# bridge-contract
