@@ -8,6 +8,7 @@ const optimist = require("optimist");
 const currNetwork = optimist.argv.network || "development";
 const from = require('../truffle-config').networks[currNetwork].from;
 const ADDRESS_0 = "0x0000000000000000000000000000000000000000";
+const ERROR_INFO = 'it should be throw error';
 
 const newCross = async (owner) => {
   // const crossProxy = await CrossProxy.new({from: owner});
@@ -35,23 +36,27 @@ contract('CrossDelegate', (accounts) => {
   const wanToken = {name:"WAN@Ethereum", symbol:"WAN", decimals:18};
 
   let crossDelegateProxy;
+  let crossDelegateInstance;
   let shadowAddress = {
     DAI: null,
     ETH: null,
     BTC: null,
     EOS: null
   };
+  let wanTokenInstance;
 
   before("init", async () => {
-    const { crossProxy } = await newCross(owner);
+    const { crossProxy, crossDelegate } = await newCross(owner);
     crossDelegateProxy = await CrossDelegate.at(crossProxy.address);
+    crossDelegateInstance = crossDelegate
+
+    wanTokenInstance = await MappingToken.new(wanToken.name, wanToken.symbol, wanToken.decimals);
   });
 
   describe('normal', () => {
     it('good token manager example', async function() {
 
       let receipt = await crossDelegateProxy.addToken(daiToken.name, daiToken.symbol, daiToken.decimals, {from: owner});
-      let gas1 = 0;
       // check AddToken event log
       const addDAIEvent = receipt.logs[0].args;
       assert.ok(addDAIEvent.tokenAddress != ADDRESS_0, "check token address [DAI] failed");
@@ -154,7 +159,7 @@ contract('CrossDelegate', (accounts) => {
       const removeMultiTokenAdmin = Object.values(shadowAddress).map(async(tokenAddress) => {
         // console.log("remove admin for", tokenAddress);
         receipt = await crossDelegateProxy.removeTokenAdmin(tokenAddress, tokenAdmin, {from: owner});
-        // check addTokenAdmin event log
+        // check removeTokenAdmin event log
         const removeTokenAdminEvent = receipt.logs[0].args;
         assert.equal(tokenAdmin.toLowerCase(), removeTokenAdminEvent.admin.toLowerCase(), `check removed token [${tokenAddress}] admin address failed`);
       });
@@ -192,4 +197,138 @@ contract('CrossDelegate', (accounts) => {
     });
   });
 
+  describe('addToken', () => {
+    it('Not owner', async function() {
+      try {
+        await crossDelegateProxy.addToken(eosToken.name, eosToken.symbol, eosToken.decimals, {from: admin});
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "Not owner");
+      }
+    });
+  });
+
+  describe('updateToken', () => {
+    it('Not owner', async function() {
+      try {
+        await crossDelegateProxy.updateToken(shadowAddress.EOS, eosToken.name, eosToken.symbol, {from: admin});
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "Not owner");
+      }
+    });
+  });
+
+  describe('addTokenAdmin', () => {
+    it('Not owner', async function() {
+      try {
+        await crossDelegateProxy.addTokenAdmin(shadowAddress.EOS, admin, {from: admin});
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "Not owner");
+      }
+    });
+  });
+
+  describe('removeTokenAdmin', () => {
+    it('Not owner', async function() {
+      try {
+        await crossDelegateProxy.removeTokenAdmin(shadowAddress.EOS, admin, {from: admin});
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "Not owner");
+      }
+    });
+  });
+
+  // describe('fallback', () => {
+  //   it('revert', async function() {
+  //     try {
+  //       const { tokenManagerDelegate } = await newTokenManager(accounts);
+  //       const r = await web3.eth.sendTransaction({from: owner, to: tokenManagerDelegate.address});
+  //     } catch (e) {
+  //       const isHave = e.message.includes("revert Not support");
+  //       if (isHave) {
+  //         assert.ok("fallback is right");
+  //         return;
+  //       }
+  //     }
+  //     assert.fail("fallback error");
+  //   });
+  // });
+
+  describe('mintToken', () => {
+    it('add admin', async function() {
+      await crossDelegateProxy.addAdmin(admin, {from: owner});
+    });
+    it('not admin', async function() {
+      try {
+        await crossDelegateProxy.mintToken(shadowAddress.EOS, admin, web3.utils.toWei("1"), {from: owner});
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "not admin");
+      }
+    });
+    it('not admin or owner', async function() {
+      try {
+        await crossDelegateProxy.mintToken(wanTokenInstance.address, admin, web3.utils.toWei("1"), {from: admin});
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "not admin or owner");
+      }
+    });
+    it('Value is null', async function() {
+      try {
+        await crossDelegateProxy.mintToken(shadowAddress.EOS, admin, 0, {from: admin});
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "Value is null");
+      }
+    });
+    it('remove admin', async function() {
+      await crossDelegateProxy.removeAdmin(admin, {from: owner});
+    })
+  });
+
+  describe('upgradeTo', () => {
+    it('check implementation', async function() {
+      try {
+        let crossProxy = await CrossProxy.at(crossDelegateProxy.address);
+        let imp = await crossProxy.implementation();
+        assert.equal(imp.toLowerCase(), crossDelegateInstance.address.toLowerCase(), "check proxy implementation failed")
+      } catch (err) {
+        assert.fail(err);
+      }
+    });
+    it('Cannot upgrade to the same implementation', async function() {
+      const crossProxy = await CrossProxy.at(crossDelegateProxy.address);
+
+      try {
+        await crossProxy.upgradeTo(crossDelegateInstance.address);
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "Cannot upgrade to the same implementation");
+      }
+    });
+    it('Cannot upgrade to the same implementation', async function() {
+      const crossProxy = await CrossProxy.at(crossDelegateProxy.address);
+
+      try {
+        await crossProxy.upgradeTo(ADDRESS_0);
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "Cannot upgrade to invalid address");
+      }
+    });
+    it('Not owner', async function() {
+      const crossProxy = await CrossProxy.at(crossDelegateProxy.address);
+
+      try {
+        await crossProxy.upgradeTo(ADDRESS_0, {from: admin});
+        assert.fail(ERROR_INFO);
+      } catch (err) {
+        assert.include(err.toString(), "Not owner");
+      }
+    })
+  })
 })
