@@ -15,6 +15,11 @@ contract MappingToken is StandardToken, Admin {
         _;
     }
 
+    modifier onlyAdminOrOwner() {
+        require(mapAdmin[msg.sender] || msg.sender == owner, "not admin or owner");
+        _;
+    }
+
     /****************************************************************************
      **
      ** EVENTS
@@ -46,7 +51,7 @@ contract MappingToken is StandardToken, Admin {
     /// @param value Amount of token to be minted
     function mint(address account, uint value)
         external
-        onlyAdmin
+        onlyAdminOrOwner
         onlyMeaningfulValue(value)
     {
         balances[account] = balances[account].add(value);
@@ -61,7 +66,7 @@ contract MappingToken is StandardToken, Admin {
     /// @param value Amount of token to be burnt
     function burn(address account, uint value)
         external
-        onlyAdmin
+        onlyAdminOrOwner
         onlyMeaningfulValue(value)
     {
         balances[account] = balances[account].sub(value);
@@ -76,7 +81,7 @@ contract MappingToken is StandardToken, Admin {
     /// @param _symbol token new symbol
     function update(string _name, string _symbol)
         external
-        onlyAdmin
+        onlyAdminOrOwner
     {
         name = _name;
         symbol = _symbol;
